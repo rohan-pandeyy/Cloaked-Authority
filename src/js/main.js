@@ -1,4 +1,4 @@
-import {ThirdPersonCameraDemo} from './thirdPersonCameraDemo.js';
+import {ThirdPersonCameraDemo} from './thirdPersonCamera.js';
 
 let _APP = null;
 
