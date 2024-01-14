@@ -2,7 +2,6 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.118/build/three.mod
 
 import {FBXLoader} from 'https://cdn.jsdelivr.net/npm/three@0.118.1/examples/jsm/loaders/FBXLoader.js';
 import {GLTFLoader} from 'https://cdn.jsdelivr.net/npm/three@0.118.1/examples/jsm/loaders/GLTFLoader.js';
-import {OrbitControls} from 'https://cdn.jsdelivr.net/npm/three@0.118/examples/jsm/controls/OrbitControls.js';
 
 
 class BasicCharacterControllerProxy {
@@ -26,6 +25,7 @@ class BasicCharacterController {
     this._decceleration = new THREE.Vector3(-0.0005, -0.0001, -5.0);
     this._acceleration = new THREE.Vector3(1, 0.25, 50.0);
     this._velocity = new THREE.Vector3(0, 0, 0);
+    this._position = new THREE.Vector3();
 
     this._animations = {};
     this._input = new BasicCharacterControllerInput();
@@ -73,8 +73,19 @@ class BasicCharacterController {
     });
   }
 
-  Update(timeInSeconds) {
+  get Position() {
+    return this._position;
+  }
+
+  get Rotation() {
     if (!this._target) {
+      return new THREE.Quaternion();
+    }
+    return this._target.quaternion;
+  }
+
+  Update(timeInSeconds) {
+    if (!this._stateMachine._currentState) {
       return;
     }
 
@@ -142,7 +153,7 @@ class BasicCharacterController {
     controlObject.position.add(forward);
     controlObject.position.add(sideways);
 
-    oldPosition.copy(controlObject.position);
+    this._position.copy(controlObject.position);
 
     if (this._mixer) {
       this._mixer.update(timeInSeconds);
@@ -181,9 +192,6 @@ class BasicCharacterControllerInput {
         break;
       case 68: // d
         this._keys.right = true;
-        break;
-      case 32: // SPACE
-        this._keys.space = true;
         break;
       case 32: // SPACE
         this._keys.space = true;
@@ -304,7 +312,7 @@ class JumpState extends State {
       curAction.reset();  
       curAction.setLoop(THREE.LoopOnce, 1);
       curAction.clampWhenFinished = true;
-      curAction.crossFadeFrom(prevAction, 0.5, true);
+      curAction.crossFadeFrom(prevAction, 0.2, true);
       curAction.play();
     } else {
       curAction.play();
@@ -464,7 +472,47 @@ class IdleState extends State {
 };
 
 
-class CharacterControllerDemo {
+class ThirdPersonCamera {
+  constructor(params) {
+    this._params = params;
+    this._camera = params.camera;
+
+    this._currentPosition = new THREE.Vector3();
+    this._currentLookat = new THREE.Vector3();
+  }
+
+  _CalculateIdealOffset() {
+    const idealOffset = new THREE.Vector3(-15, 20, -30);
+    idealOffset.applyQuaternion(this._params.target.Rotation);
+    idealOffset.add(this._params.target.Position);
+    return idealOffset;
+  }
+
+  _CalculateIdealLookat() {
+    const idealLookat = new THREE.Vector3(0, 10, 50);
+    idealLookat.applyQuaternion(this._params.target.Rotation);
+    idealLookat.add(this._params.target.Position);
+    return idealLookat;
+  }
+
+  Update(timeElapsed) {
+    const idealOffset = this._CalculateIdealOffset();
+    const idealLookat = this._CalculateIdealLookat();
+
+    // const t = 0.05;
+    // const t = 4.0 * timeElapsed;
+    const t = 1.0 - Math.pow(0.001, timeElapsed);
+
+    this._currentPosition.lerp(idealOffset, t);
+    this._currentLookat.lerp(idealLookat, t);
+
+    this._camera.position.copy(this._currentPosition);
+    this._camera.lookAt(this._currentLookat);
+  }
+}
+
+
+class ThirdPersonCameraDemo {
   constructor() {
     this._Initialize();
   }
@@ -514,19 +562,14 @@ class CharacterControllerDemo {
     light = new THREE.AmbientLight(0xFFFFFF, 0.25);
     this._scene.add(light);
 
-    const controls = new OrbitControls(
-      this._camera, this._threejs.domElement);
-    controls.target.set(0, 10, 0);
-    controls.update();
-
     const loader = new THREE.CubeTextureLoader();
     const texture = loader.load([
-        'assets/right.jpg',
-        'assets/left.jpg',
-        'assets/top.jpg',
-        'assets/bottom.jpg',
-        'assets/front.jpg',
-        'assets/back.jpg',
+      'assets/right.jpg',
+      'assets/left.jpg',
+      'assets/top.jpg',
+      'assets/bottom.jpg',
+      'assets/front.jpg',
+      'assets/back.jpg',
     ]);
     texture.encoding = THREE.sRGBEncoding;
     this._scene.background = texture;
@@ -554,37 +597,10 @@ class CharacterControllerDemo {
       scene: this._scene,
     }
     this._controls = new BasicCharacterController(params);
-  }
 
-  _LoadAnimatedModelAndPlay(path, modelFile, animFile, offset) {
-    const loader = new FBXLoader();
-    loader.setPath(path);
-    loader.load(modelFile, (fbx) => {
-      fbx.scale.setScalar(0.1);
-      fbx.traverse(c => {
-        c.castShadow = true;
-      });
-      fbx.position.copy(offset);
-
-      const anim = new FBXLoader();
-      anim.setPath(path);
-      anim.load(animFile, (anim) => {
-        const m = new THREE.AnimationMixer(fbx);
-        this._mixers.push(m);
-        const idle = m.clipAction(anim.animations[0]);
-        idle.play();
-      });
-      this._scene.add(fbx);
-    });
-  }
-
-  _LoadModel() {
-    const loader = new GLTFLoader();
-    loader.load('assets/thing.glb', (gltf) => {
-      gltf.scene.traverse(c => {
-        c.castShadow = true;
-      });
-      this._scene.add(gltf.scene);
+    this._thirdPersonCamera = new ThirdPersonCamera({
+      camera: this._camera,
+      target: this._controls,
     });
   }
 
@@ -617,6 +633,8 @@ class CharacterControllerDemo {
     if (this._controls) {
       this._controls.Update(timeElapsedS);
     }
+
+    this._thirdPersonCamera.Update(timeElapsedS);
   }
 }
 
@@ -624,5 +642,28 @@ class CharacterControllerDemo {
 let _APP = null;
 
 window.addEventListener('DOMContentLoaded', () => {
-  _APP = new CharacterControllerDemo();
+  _APP = new ThirdPersonCameraDemo();
 });
+
+
+function _LerpOverFrames(frames, t) {
+  const s = new THREE.Vector3(0, 0, 0);
+  const e = new THREE.Vector3(100, 0, 0);
+  const c = s.clone();
+
+  for (let i = 0; i < frames; i++) {
+    c.lerp(e, t);
+  }
+  return c;
+}
+
+function _TestLerp(t1, t2) {
+  const v1 = _LerpOverFrames(100, t1);
+  const v2 = _LerpOverFrames(50, t2);
+  console.log(v1.x + ' | ' + v2.x);
+}
+
+_TestLerp(0.01, 0.01);
+_TestLerp(1.0 / 100.0, 1.0 / 50.0);
+_TestLerp(1.0 - Math.pow(0.3, 1.0 / 100.0), 
+          1.0 - Math.pow(0.3, 1.0 / 50.0));
