@@ -151,6 +151,10 @@ export class BasicCharacterController {
         return;
       }
   
+      if (this._input._keys.space) {
+        this._stateMachine.SetState('jump');
+      }
+  
       this._stateMachine.Update(timeInSeconds, this._input);
   
       const velocity = this._velocity;
